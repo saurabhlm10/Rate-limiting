@@ -1,5 +1,8 @@
+import dotenv from "dotenv";
+dotenv.config();
 import express from "express";
 import rateLimit from "express-rate-limit";
+import cors from "cors";
 
 const app = express();
 const PORT = 3000;
@@ -22,6 +25,7 @@ const passwordResetLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+app.use(cors());
 app.use(express.json());
 
 // Store OTPs in a simple in-memory object
@@ -41,8 +45,24 @@ app.post("/generate-otp", otpLimiter, (req, res) => {
 });
 
 // Endpoint to reset password
-app.post("/reset-password", passwordResetLimiter, (req, res) => {
-  const { email, otp, newPassword } = req.body;
+app.post("/reset-password", passwordResetLimiter, async (req, res) => {
+  const { email, otp, newPassword, token } = req.body;
+
+  let formData = new FormData();
+  formData.append("secret", process.env.CLOUDFLARE_SECRET_KEY as string);
+  formData.append("response", token);
+
+  const url = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+  const result = await fetch(url, {
+    body: formData,
+    method: "POST",
+  });
+  const challengeSucceeded = (await result.json()).success;
+
+  if (!challengeSucceeded) {
+    return res.status(403).json({ message: "Invalid reCAPTCHA token" });
+  }
+
   if (!email || !otp || !newPassword) {
     return res
       .status(400)
